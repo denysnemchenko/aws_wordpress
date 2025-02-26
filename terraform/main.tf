@@ -216,8 +216,8 @@ resource "aws_iam_user" "wordpress" {
   name = "Wordpress"
 }
 
-resource "aws_iam_user" "abz" {
-  name = "abz"
+resource "aws_iam_user" "aws_client" {
+  name = "aws_client"
 }
 
 #Creating access keys for them
@@ -225,19 +225,19 @@ resource "aws_iam_access_key" "wordpress_access_key" {
   user = aws_iam_user.wordpress.name
 }
 
-resource "aws_iam_access_key" "abz_access_key" {
-  user = aws_iam_user.abz.name
+resource "aws_iam_access_key" "aws_client_access_key" {
+  user = aws_iam_user.aws_client.name
 }
 
 #Giving the client ViewOnlyAccess AWS Managed policy
-resource "aws_iam_user_policy_attachment" "abz" {
+resource "aws_iam_user_policy_attachment" "aws_client" {
   policy_arn = "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
-  user       = aws_iam_user.abz.name
+  user       = aws_iam_user.aws_client.name
 }
 
 #Giving the client permission to log in into AWS Console
 resource "aws_iam_user_login_profile" "client_console" {
-  user            = aws_iam_user.abz.name
+  user            = aws_iam_user.aws_client.name
   password_length = 20
 }
 
@@ -292,5 +292,5 @@ resource "local_file" "ansible_inventory" {
 #Output for credentials
 resource "local_file" "credentials" {
   filename = "credentials"
-  content  = "User:${aws_iam_user.abz.name}\nToken:${aws_iam_access_key.abz_access_key.secret}\nPass:${aws_iam_user_login_profile.client_console.password}\nUser:${aws_iam_user.wordpress.name}\nToken:${aws_iam_access_key.wordpress_access_key.secret}"
+  content  = "User:${aws_iam_user.aws_client.name}\nToken:${aws_iam_access_key.aws_client_access_key.secret}\nPass:${aws_iam_user_login_profile.client_console.password}\nUser:${aws_iam_user.wordpress.name}\nToken:${aws_iam_access_key.wordpress_access_key.secret}"
 }
