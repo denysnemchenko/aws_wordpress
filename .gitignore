@@ -1,0 +1,9 @@
+aws_*
+*.tfstate*
+.idea
+.terraform
+*lock*
+vars*
+inventory
+deploy
+credentials

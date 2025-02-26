@@ -1,0 +1,181 @@
+---
+- name: full wordpress deploy
+  hosts: wordpress
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yaml
+  vars:
+    - packages:
+        - acl
+        - nginx
+        - ghostscript
+        - php8.3-mysql
+        - php8.3
+        - php8.3-curl
+        - php8.3-gd
+        - php8.3-intl
+        - php8.3-mbstring
+        - php8.3-soap
+        - php8.3-xml
+        - php8.3-xmlrpc
+        - php8.3-zip
+        - php8.3-fpm
+        - php8.3-redis
+        - zip
+    - app_dir: "/opt/app"
+    - site_title: ""
+    - wordpress_admin: ""
+    - wordpress_admin_pass: ""
+    - wordpress_admin_email: ""
+    - http_protocol: "http://" #Your http protocol(HTTP/HTTPS)
+    - system_user: "wordpress"
+
+  tasks:
+    #Creating app user, without sudo privileges for security
+    - name: create group with gid
+      group:
+        name: "{{ system_user }}"
+        state: present
+    - name: create user and his uid
+      user:
+        name: "{{ system_user }}"
+        group: "{{ system_user }}"
+        state: present
+    #Creating directory for app
+    - name: create dir
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ system_user }}"
+        group: "{{ system_user }}"
+
+    # Starting deploy with getting required packages
+    - name: get required packages
+      apt:
+        pkg:
+          - "{{ item }}"
+        state: present
+        update_cache: yes
+      with_items: "{{ packages }}"
+    #Getting the latest version of WordPress
+    - name: get wordpress
+      shell:
+        cmd: 'curl https://wordpress.org/latest.tar.gz | sudo -u "{{ system_user }}" tar zx -C "{{ app_dir }}"'
+    #Installing composer for phpdotenv extension
+    - name: install composer for .env
+      script: composer.sh
+      args:
+        chdir: "{{ app_dir }}/wordpress/"
+    #Installing
+    - name: install phpdotenv
+      shell:
+        cmd: "./composer.phar require vlucas/phpdotenv"
+      args:
+        chdir: "{{ app_dir }}/wordpress/"
+      become_user: "{{ system_user }}"
+    #Using templating to create adaptive wp config
+    - name: copy wordpress config to remote
+      template:
+        src: "templates/wp-config.j2"
+        dest: "{{ app_dir }}/wordpress/wp-config.php"
+        owner: "{{ system_user }}"
+        group: "{{ system_user }}"
+
+    #Sending .env with variables to server
+    - name: copy .env to remote
+      template:
+        src: ".env-example.j2"
+        dest: "{{ app_dir }}/wordpress/.env"
+        owner: "{{ system_user }}"
+        group: "{{ system_user }}"
+    #Templating nginx config for adaptivity
+    - name: copy nginx conf for wordpress
+      template:
+        src: "nginx-conf.j2"
+        dest: "/etc/nginx/sites-available/wordpress"
+    #Enabling config
+    - name: symlink to enabled
+      file:
+        path: "/etc/nginx/sites-enabled/wordpress"
+        src: "/etc/nginx/sites-available/wordpress"
+        state: link
+        force: true
+    #Removing nginx default conf
+    - name: delete default conf from enabled sites
+      file:
+        path: "/etc/nginx/sites-enabled/default"
+        state: absent
+        force: true
+    #Changing nginx user for security
+    - name: change default nginx user
+      lineinfile:
+        path: "/etc/nginx/nginx.conf"
+        regexp: "^user "
+        line: 'user "{{ system_user }}" "{{ system_user }}";'
+    #Changing php user for security
+    - name: change default php user
+      lineinfile:
+        path: /etc/php/8.3/fpm/pool.d/www.conf
+        regexp: "^user ="
+        line: 'user = "{{ system_user }}"'
+    - name: change default php user
+      lineinfile:
+        path: /etc/php/8.3/fpm/pool.d/www.conf
+        regexp: "^group ="
+        line: 'group = "{{ system_user }}"'
+    - name: change default php user
+      lineinfile:
+        path: /etc/php/8.3/fpm/pool.d/www.conf
+        regexp: "^listen.owner ="
+        line: 'listen.owner = "{{ system_user }}"'
+    - name: change default php user
+      lineinfile:
+        path: /etc/php/8.3/fpm/pool.d/www.conf
+        regexp: "^listen.group ="
+        line: 'listen.group = "{{ system_user }}"'
+    #Restaring php because of changes
+    - name: restart php8.3-fpm
+      service:
+        name: php8.3-fpm
+        enabled: true
+        state: restarted
+    #Using wp-cli for install without using web
+    - name: get wp-cli tool for cmd install
+      get_url:
+        url: "https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+        dest: /usr/local/bin/wp
+        mode: +x
+    #Installing WordPress
+    - name: quick install wordpress
+      shell:
+        cmd: "wp core install --path={{ app_dir }}/wordpress --url='{{http_protocol}}{{ wordpress_domain }}' --title={{ site_title }} --admin_user={{ wordpress_admin }} --admin_password={{ wordpress_admin_pass }} --admin_email={{ wordpress_admin_email }}"
+      become_user: "{{ system_user }}"
+    #Getting redis cache plugin(We using ElastiCache with Redis engine)
+    - name: install wordpress object cache
+      unarchive:
+        src: "https://downloads.wordpress.org/plugin/redis-cache.2.5.4.zip"
+        dest: "{{ app_dir }}/wordpress/wp-content/plugins/"
+        owner: "{{ system_user }}"
+        group: "{{ system_user }}"
+        remote_src: true
+    #Activating plugin with wp-cli
+    - name: activate and enable plugin
+      shell:
+        cmd: "wp plugin activate redis-cache --path={{ app_dir }}/wordpress && wp redis enable --path={{ app_dir }}/wordpress"
+      become_user: "{{ system_user }}"
+    #Little check for connection
+    - name: check cache connectivity
+      shell:
+        cmd: "wp redis status --path={{ app_dir }}/wordpress"
+      become_user: "{{ system_user }}"
+    #Checking nginx config
+    - name: check nginx conf
+      command: nginx -t
+      changed_when: false
+    #Enabling service
+    - name: enable nginx
+      service:
+        name: nginx
+        enabled: true
+        state: restarted
