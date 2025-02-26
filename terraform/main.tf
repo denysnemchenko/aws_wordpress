@@ -294,3 +294,4 @@ resource "local_file" "credentials" {
   filename = "credentials"
   content  = "User:${aws_iam_user.aws_client.name}\nToken:${aws_iam_access_key.aws_client_access_key.secret}\nPass:${aws_iam_user_login_profile.client_console.password}\nUser:${aws_iam_user.wordpress.name}\nToken:${aws_iam_access_key.wordpress_access_key.secret}"
 }
+#
